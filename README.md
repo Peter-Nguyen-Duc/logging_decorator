@@ -17,4 +17,14 @@ printed, to not overbloat the log file, the variables are as such:
  - list -> output length
 
 
+## Example usage
+Above the class set the decorator "decorate_all_class_methods"
+
+as example:
+
+@decorate_all_class_methods()
+class test:
+
+
+
 
