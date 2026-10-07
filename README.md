@@ -36,6 +36,11 @@ such that it looks like the following:
 @log_decorator(logging.INFO)
 
 
+## Run code as submodule
+source: https://git-scm.com/book/en/v2/Git-Tools-Submodules
+If this code is to be inserted into another github repo, it is done be running the following code
 
+git add submodule https://github.com/Peter-Nguyen-Duc/logging_decorator
 
-
+git submodule update
+git submodule init
