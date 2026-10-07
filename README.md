@@ -18,12 +18,23 @@ printed, to not overbloat the log file, the variables are as such:
 
 
 ## Example usage
-Above the class set the decorator "decorate_all_class_methods"
+
+within the specified document you want to use it import the logging python file and initate the following function to enable the decorator:
+generate_logger_file()
+
+
+Above a class set the decorator "decorate_all_class_methods"
 
 as example:
 
 @decorate_all_class_methods()
 class test:
+
+If you want to decorate a function you must decorate it with "log_decorator" with the input logging.INFO
+such that it looks like the following: 
+
+@log_decorator(logging.INFO)
+
 
 
 
