@@ -1,3 +1,5 @@
+from sentence_transformers import sentence_transformer
+
 import logging
 
 import time
@@ -8,6 +10,8 @@ import numpy as np
 import tensorflow as tf  # Ensure TensorFlow is imported
 from functools import wraps
 import threading
+
+from ollama import ChatResponse
 logger = logging.getLogger('TraceLog')
 
 
@@ -19,19 +23,33 @@ _local = threading.local()
 # Thread-local storage for call depth
 _local_prev = threading.local()
 
-def decorate_all_class_methods():
+
+def ignore_logging(fn):
     """
-    If you smack the decorator argument "@decorate_all_class_methods(log_decorator(logging.INFO))" in front of a class it decorates all methods within the class :D
+    Marker decorator to tell decorate_all_class_methods to skip this specific method.
     """
+    fn._ignore_logging = True
+    return fn
+
+
+def decorate_all_class_methods(cls):
+    """
+    A simple decorator that iterates through all methods of a class 
+    and applies the log_decorator unless marked with @ignore_logging.
+    """
+    # We initialize the log_decorator here with the desired level
     decorator = log_decorator(logging.INFO)
 
-    def decorate(cls):
-        for attr in cls.__dict__: # there's propably a better way to do this
-            if callable(getattr(cls, attr)):
-                setattr(cls, attr, decorator(getattr(cls, attr)))
-        return cls
-    return decorate
-
+    for attr in cls.__dict__:
+        method = getattr(cls, attr)
+        if callable(method):
+            # Respect the @ignore_logging marker
+            if getattr(method, '_ignore_logging', False):
+                continue 
+            
+            setattr(cls, attr, decorator(method))
+            
+    return cls
 
 
 def generate_logger_file():
@@ -69,20 +87,56 @@ def generate_logger_file():
 
 def log_decorator(level):
     def _decorator(fn):
+
+
+        
         def _format_log_value(value):
+
+            # 1. Handle ChatResponse (Extract content AND thinking)
+            if isinstance(value, ChatResponse):
+                msg = getattr(value, 'message', None)
+                if msg:
+                    content = getattr(msg, 'content', 'No content')
+                    thinking = getattr(msg, 'thinking', 'No thinking')
+                    # We use f-strings to keep the newlines exactly as they are in the source
+                    return f"[ChatResponse] model={value.model}\nCONTENT:\n{content}\nTHINKING:\n{thinking}"
+                return f"[ChatResponse] model={value.model}, msg=None"
+
             """Helper function to format the value for logging."""
+            if value is None:
+                return "[None]"
+
+            # 1. Handle Heavy Data Structures (Summary only)
             if isinstance(value, np.ndarray):
-                return f"numpy.ndarray with shape {value.shape}, dtype {value.dtype}"
-            elif isinstance(value, tf.Tensor):
-                return f"tf.Tensor with shape {value.shape}, dtype {value.dtype}"
-            elif isinstance(value, dict):
-                return f"dict with keys: {list(value.keys())}"
-            elif isinstance(value, tuple):
-                return f"tuple with length: {len(value)}"
-            elif isinstance(value, list):
-                return f"list with length: {len(value)}"
-            else:
-                return f"type \"{type(value)}\" with value - {value}"
+                return f"[ndarray] shape {value.shape}, dtype {value.dtype}"
+            
+            if isinstance(value, tf.Tensor):
+                return f"[tensor] shape={value.shape}, dtype={value.dtype}"
+            
+            if isinstance(value, dict):
+                return f"[dict] keys={list(value.keys())}"
+            
+            if isinstance(value, (list, tuple)):
+                if len(value) > 0:
+                    # Take first 2 elements, convert to string, and slice each to 10 chars
+                    preview_items = [str(v)[:10] for v in value[:2]]
+                    preview = f"[{', '.join(preview_items)}]"
+                else:
+                    preview = "empty"
+                
+                return f"[{type(value).__name__}] len={len(value)}, preview={preview}"
+
+            if isinstance(value, bytes):
+                preview = value[:4].hex(' ') 
+                return f"[bytes] len={len(value)}, preview=[{preview}...]"
+
+            # 3. Regular Strings (Just return them as-is)
+            if isinstance(value, str):
+                return f"[str] {value}"
+
+            
+            # 3. Fallback for everything else
+            return f"[{type(value).__name__}] {value}"
 
         @wraps(fn)
         def _decorated(*args, **kwargs):
@@ -91,8 +145,11 @@ def log_decorator(level):
 
             if Logging_enabled:
                 # Format args and kwargs for logging
-                formatted_args = [_format_log_value(arg) for arg in args]
-                formatted_kwargs = {k: _format_log_value(v) for k, v in kwargs.items()}
+                formatted_args_list = [_format_log_value(arg) for arg in args]
+                formatted_kwargs_dict = {k: _format_log_value(v) for k, v in kwargs.items()}
+
+                args_str = ", ".join(formatted_args_list) if formatted_args_list else "None"
+                kwargs_str = ", ".join([f"{k}={v}" for k, v in formatted_kwargs_dict.items()]) if formatted_kwargs_dict else "None"
 
 
                 # Indentation based on call depth
@@ -103,11 +160,12 @@ def log_decorator(level):
                     _local_prev.call_depth = _local.call_depth
 
 
-                # Log the function call with indentation
+                # 3. Log using the joined strings, NOT the list/dict objects
                 logger.log(
                     level,
-                    f"{indent} calling '{fn.__qualname__} with args: {formatted_args}, kwargs: {formatted_kwargs}",
+                    f"{indent} calling '{fn.__qualname__}' with args: {args_str}, kwargs: {kwargs_str}",
                 )
+
 
                 # Increment call depth
                 _local.call_depth += 1
@@ -128,10 +186,11 @@ def log_decorator(level):
                     logger.info("")
                     _local_prev.call_depth = _local.call_depth
 
-                # Log the function return with indentation
+                # 4. Use the joined strings here as well
+                # Re-use the strings we created at the start of the function
                 logger.log(
                     level,
-                    f"{indent} returning '{fn.__qualname__} with args: {formatted_args}, kwargs: {formatted_kwargs}, got return value: {formatted_ret}",
+                    f"{indent} returning '{fn.__qualname__}' with args: {args_str}, kwargs: {kwargs_str}, got return value: {formatted_ret}",
                 )
 
 
