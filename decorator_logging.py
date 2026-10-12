@@ -98,8 +98,9 @@ def log_decorator(level):
                 if msg:
                     content = getattr(msg, 'content', 'No content')
                     thinking = getattr(msg, 'thinking', 'No thinking')
+                    tool_calls = getattr(msg, 'tool_calls', 'No tools')
                     # We use f-strings to keep the newlines exactly as they are in the source
-                    return f"[ChatResponse] model={value.model}\nCONTENT:\n{content}\nTHINKING:\n{thinking}"
+                    return f"[ChatResponse] model={value.model}\nCONTENT:\n{content}\nTHINKING:\n{thinking}\nTOOL CALLS:\n{tool_calls}"
                 return f"[ChatResponse] model={value.model}, msg=None"
 
             """Helper function to format the value for logging."""
